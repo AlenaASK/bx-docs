@@ -1,0 +1,47 @@
+AddEventHandler("catalog", "OnBeforeProductUpdate", "OnBeforeProductUpdateHandler");
+function OnBeforeProductUpdateHandler($id, $arFields) {
+	global $DB;
+	$arMail = array();
+	
+	// Если кол-во товара больше 0
+	if ($arFields["QUANTITY"] > 0) {
+		
+		// Есть ли подписчики
+		$tableName = \Bitrix\Catalog\SubscribeTable::getTableName();
+		$results = $DB->Query("SELECT `USER_CONTACT` FROM `" . $tableName . "` WHERE `ITEM_ID`='" . $arFields["ID"] . "'");
+		while ($row = $results->Fetch()) {
+			$arMail[] = $row["USER_CONTACT"];
+		}
+		
+		// Если нет подписчиков, не продолжаем
+		if (empty($arMail))
+			return true;
+		
+		// Смотрим, сколько товара в наличии было до обновления
+		CModule::IncludeModule('iblock');
+		$objElement = CIblockElement::GetList(
+			array(), array("ID" => $arFields["ID"]), false, false, 
+			array("CATALOG_GROUP_" . PRICE_BASE_ID, "DETAIL_PAGE_URL", "NAME")
+		);
+		$arElement = $objElement->GetNext();
+		$arElement["PAGE_URL"] = "https://" . $_SERVER["SERVER_NAME"] . $arElement["DETAIL_PAGE_URL"];
+		
+		// Если ранее было больше 0, не продолжаем
+		if ((integer)$arElement["CATALOG_QUANTITY"] > 0)
+			return true;
+		
+		// Отправим уведомления всем подписавшимся пользователям
+		foreach ($arMail as $mail) {
+			Bitrix\Main\Mail\Event::send(array(
+				"EVENT_NAME" => "SALE_SUBSCRIBE_PRODUCT",
+				"LID" => "s1",
+				"C_FIELDS" => array(
+					"EMAIL" => $mail,
+					"NAME" => $arElement["NAME"],
+					"PAGE_URL" => $arElement["PAGE_URL"]
+				),
+			));
+		}
+	}
+	return true;
+}
