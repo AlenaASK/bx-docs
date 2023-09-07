@@ -1,0 +1,49 @@
+/* Start Событие - добавить свой параметр перед отправкой письма*/
+function OnBeforeEventAdd(&$event, &$lid, &$arFields)
+{
+    if ($event == 'SALE_STATUS_CHANGED_D') { //статус В пути
+
+        $order_id = $arFields['ORDER_ID'];
+        $order = \Bitrix\Sale\Order::load($order_id);
+        $propertyCollection = $order->getPropertyCollection();
+ 
+        foreach ($propertyCollection as $property) {
+            $getValue = $property->getField('VALUE');
+            if ($getValue) {
+
+                // получим значения свойства Трек-номер заказа
+                if ($property->getField('CODE') == 'DELIVERY_TRACK_NUMBER') {
+                    $arResult['DELIVERY_TRACK_NUMBER'] = $getValue;
+                    break;
+                };
+            }
+        }
+
+        //получим мэйл юзера
+        $user_email = $propertyCollection->getUserEmail();
+
+        //есл ив заказе нет мэйла, получим его у юзера
+        if(empty($user_email)){
+
+            $userId = $order->getUserId();
+            $user = UserTable::getList([
+                'select' => [
+                    'EMAIL'
+                ],
+                'filter' => [
+                    'ID' => $userId
+                ]
+            ])->fetch();
+
+            $arFields["EMAIL"] = $user['EMAIL'];
+        }
+
+        if($arResult['DELIVERY_TRACK_NUMBER']){
+
+             // добавим в письмо короткую ссылку на трек номер
+            $path = GetShortUrl($arResult['DELIVERY_TRACK_NUMBER']);
+            $arFields["PATH_URL"] = $path;
+            
+        }
+    }
+}
