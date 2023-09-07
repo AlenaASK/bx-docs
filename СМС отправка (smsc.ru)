@@ -1,0 +1,7 @@
+/*Отправим юзеру смс*/
+$login = 'CLIENT';
+$psw = 123456;
+$phone = '96111111111';
+$sms_message = 'Hello';
+
+$resSms = file_get_contents('https://smsc.ru/sys/send.php?login=$login&psw=$psw@&phones=+7'.$phone.'&mes='.$sms_message);
