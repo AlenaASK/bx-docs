@@ -1,0 +1,24 @@
+ /**
+    * Возвращает поля юзера по id заказу
+    *
+    * @param string $order_id ID заказа
+  **/
+  public static function getUserOrder($order_id) {
+
+    $order = \Bitrix\Sale\Order::load($order_id);
+    $userId = $order->getUserId();
+
+    $user = UserTable::getList([
+        'select' => [
+            'EMAIL', 'PERSONAL_PHONE'
+        ],
+        'filter' => [
+            'ID' => $userId
+        ]
+    ])->fetch();
+
+    $arResult["EMAIL"] = $user['EMAIL'];
+    $arResult["PHONE"] = $user['PERSONAL_PHONE'];
+
+    return $arResult;
+  }
