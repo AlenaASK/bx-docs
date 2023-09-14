@@ -1,92 +1,82 @@
-<?
+<?// включите обработку устаревших событий в Интернет-магазине
+
+Main\EventManager::getInstance()->addEventHandler(
+    'catalog',
+    'OnStoreProductUpdate',
+    'OnStoreProductUpdate'
+);
+
 /* Подписка на товары - оповестим юзеров о товарах в наличии  */
-function OnBeforeIBlockElementUpdate(&$arFields){
+function OnStoreProductUpdate($id, $arFields){
 
     global $USER, $DB;
     $arMail = array();
-   
-    // Есть ли подписчики
-    $tableName = \Bitrix\Catalog\SubscribeTable::getTableName();
-    $results = $DB->Query("SELECT `USER_CONTACT`, `SITE_ID`, `USER_ID` FROM `" . $tableName . "` WHERE `ITEM_ID`='" . $arFields["ID"] . "'");
-    while ($row = $results->Fetch()) {
-        $arMail[$row["USER_ID"]]["USER_CONTACT"] = $row["USER_CONTACT"];
-        $arMail[$row["USER_ID"]]['STORE_ID'] = $row["SITE_ID"]; // в это поле добавляется Склад
-        $arStore['STORE_ID'] = $row["SITE_ID"]; // в это поле добавляется Склад
-        $userID[$row["USER_ID"]] = $row["USER_ID"]; // собереме id юзеров чтобы удалить подписку
-
-        $dbUser = \Bitrix\Main\UserTable::getList(array(
-            'select' => [
-                'ID', 
-                'NAME', 
-                'LAST_NAME', 
-             ],
-             'filter' => [
-                 'ID' => $row["USER_ID"]
-             ]
-        ));
-        if ($arUser = $dbUser->fetch()){
-            $arMail[$row["USER_ID"]]["USER_NAME"] = $arUser["NAME"].' '.$arUser["LAST_NAME"];
-        }
-        
-    }
-
-    // Если нет подписчиков, не продолжаем
-    if (empty($arMail))
-        return true;
-
-    $arFilter = Array("PRODUCT_ID" => $arFields['ID'], "STORE_ID" => $arStore['STORE_ID']);
-    $res = CCatalogStoreProduct::GetList(Array(),$arFilter,false,false,Array());
-    if ($arRes = $res->GetNext()) {
-        //debugmessage($arRes);
-    }
 
     // Если кол-во товара больше 0
-    if ($arRes["AMOUNT"] > 0) {
+    if($arFields["AMOUNT"] > 0){
 
-        // Смотрим, сколько товара в наличии было до обновления
+        // Есть ли подписчики на товар
+        $hlblock = HL\HighloadBlockTable::getList([
+            'filter' => ['=NAME' => 'SubscriptionProducts']
+        ])->fetch();
+
+        $entity = HL\HighloadBlockTable::compileEntity($hlblock);
+        $entityClass = $entity->getDataClass();
+
+        $result = $entityClass::getList(array(
+            'select' => ['ID', 'UF_ITEM_ID', 'UF_USER_CONTACT', 'UF_USER_ID', 'UF_STOCK'],
+            'filter' => ['=UF_ITEM_ID' => $arFields["PRODUCT_ID"], '=UF_STOCK' => $arFields["STORE_ID"]]
+        ));
+
+        while ($row = $result->Fetch()) {
+
+            $arMail[$row["UF_USER_ID"]]["USER_CONTACT"] = $row["UF_USER_CONTACT"];
+
+            $dbUser = \Bitrix\Main\UserTable::getList(array(
+                'select' => [
+                    'ID', 
+                    'NAME', 
+                    'LAST_NAME', 
+                ],
+                'filter' => [
+                    'ID' => $row["UF_USER_ID"]
+                ]
+            ));
+
+            if ($arUser = $dbUser->fetch()){
+                $arMail[$row["UF_USER_ID"]]["USER_NAME"] = $arUser["NAME"].' '.$arUser["LAST_NAME"];
+            }
+
+            $arMail[$row["UF_USER_ID"]]["UF_STOCK"] = $row["UF_STOCK"];
+        }
+
+        // Если нет подписчиков, не продолжаем
+        if (empty($arMail))
+            return true;
+
         $objElement = CIblockElement::GetList(
-            array(), array("ID" => $arFields["ID"]), false, false, 
-            array("DETAIL_PAGE_URL")
+            array(), array("ID" => $arFields["PRODUCT_ID"]), false, false, 
+            array("DETAIL_PAGE_URL", "NAME")
         );
         $arElement = $objElement->GetNext();
         $arElement["PAGE_URL"] = "https://" . $_SERVER["SERVER_NAME"] . $arElement["DETAIL_PAGE_URL"];
-        
+
         // Отправим уведомления всем подписавшимся пользователям
         foreach ($arMail as $key => $mail) {
 
             Bitrix\Main\Mail\Event::send(array(
-               "EVENT_NAME" => "SALE_SUBSCRIBE_PRODUCT",
-               "LID" => "s1",
-               "C_FIELDS" => array(
-                   "EMAIL" => $mail["USER_CONTACT"],
-                   "USER_NAME" => $mail["USER_NAME"],
-                   "NAME" => $arFields["NAME"],
-                   "PAGE_URL" => $arElement["PAGE_URL"],
-               ),
-           ));
+                "EVENT_NAME" => "SALE_SUBSCRIBE_PRODUCT",
+                "LID" => "s1",
+                "C_FIELDS" => array(
+                    "EMAIL" => $mail["USER_CONTACT"],
+                    "USER_NAME" => $mail["USER_NAME"],
+                    "NAME" => htmlspecialcharsBack($arElement["NAME"]),
+                    "PAGE_URL" => $arElement["PAGE_URL"],
+                ),
+            ));
         }
-
-        // отпишем юзера после отправки письма
-        // собираем массив id всех подписок данного юзера
-        foreach ($userID as $userId) {
-            $results = $DB->Query("SELECT `ID`, `USER_ID` FROM `" . $tableName . "` WHERE `ITEM_ID`='".$arFields['ID']."' and `USER_ID`='".$userId."'");
-            while ($row = $results->Fetch()) {
-                $ListSubscribe['ID'][] = $row["ID"];
-            }
-        }
-
-        //удалим подписку на данный товар
-        $subscribeManager = new \Bitrix\Catalog\Product\SubscribeManager;
-        if(!$subscribeManager->deleteManySubscriptions($ListSubscribe['ID'], $arFields['ID']))
-        {
-            $errorObject = current($subscribeManager->getErrors());
-            if($errorObject) {
-                $errors = $errorObject->getMessage();
-            }
-        }
-
-
-   }
+        
+    }
 
    return true;
 }
