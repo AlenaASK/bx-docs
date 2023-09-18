@@ -1,0 +1,30 @@
+/*Обновим всем юзерам CONFIRM_CODE*/
+global $USER;
+$result = \Bitrix\Main\UserGroupTable::getList(array(
+
+    'order' => array('USER.LAST_LOGIN'=>'DESC'),
+    'filter' => array(
+        'USER.ACTIVE'    => 'Y',
+        'CONFIRM_CODE' => '',
+    ),
+
+    'select' => array(
+
+        'ID'=>'USER.ID', 
+        'CONFIRM_CODE'=>'USER.CONFIRM_CODE', 
+    ),
+
+));
+
+while ($user = $result->fetch()) 
+{
+	$users = new CUser;
+	$fields = Array(
+	  "ID" => $user['ID'],
+	  "CONFIRM_CODE" => randString(8),
+	);
+	
+	$users->Update($user['ID'], $fields);
+    //print_r($users);
+
+}
