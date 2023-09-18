@@ -28,3 +28,14 @@ while ($user = $result->fetch())
     //print_r($users);
 
 }
+
+
+==========================
+проверим CONFIRM_CODE в массиве юзера
+
+$rsUser = CUser::GetByID(1);
+$arUser = $rsUser->Fetch();
+
+echo '<pre>';
+print_r($arUser);
+echo '</pre>';
