@@ -1,0 +1,184 @@
+\Bitrix\Main\EventManager::getInstance()->addEventHandler(
+    "main", 
+    "OnAdminSaleOrderView", 
+    array("Logging", "onInit")
+);
+
+class Logging
+{
+	public static function onInit()
+	{
+		return array(
+		"TABSET" => "Logging",
+		"GetTabs" => array("Logging", "mygetTabs"),
+		"ShowTab" => array("Logging", "myshowTab"),
+		"Action" => array("Logging", "myaction"),
+		"Check" => array("Logging", "mycheck"),
+		); 
+	}
+	public static function myaction($arArgs)
+	{
+		// Действие после сохранения заказа. Возвращаем true / false
+		// Сообщение $GLOBALS["APPLICATION"]->ThrowException("Ошибка!!!", "ERROR");
+		return true;
+	}
+	public static function mycheck($arArgs)
+	{
+		// Проверки перед сохранением. Возвращаем true / false
+		return true;
+	}
+	public static function mygetTabs($arArgs)
+	{
+		return array(array("DIV" => "edit1", "TAB" => "Логирование",
+		"ICON" => "sale", "TITLE" => "История изменений после обмена с 1С (поля, которые изменились)",
+		"SORT" => 500));
+	}
+	public static function myshowTab($divName, $arArgs, $bVarsFromForm)
+	{
+		if ($divName == "edit1")
+		{
+            $hlblock = HL\HighloadBlockTable::getList([
+                'filter' => ['=NAME' => 'logging']
+            ])->fetch();
+            $entityClass = HL\HighloadBlockTable::compileEntity($hlblock)->getDataClass();
+        
+            // найдем запись в HL Logging
+            $isExist = $getCounter = 0;
+            $arFilter = [
+                '=UF_ORDER_ID' => $_GET['ID'],
+            ];
+        
+            $ress = $entityClass::getList(array(
+                "select" => ["ID", "UF_ORDER_ID", "UF_DATE_CREATE", 'UF_DISCREPANCIES'],
+                "order" => ["ID" => "DESC"],
+                "filter" => $arFilter,
+                'limit' => 1,
+            ));
+            
+            while($arData = $ress->Fetch()){
+                // массив заказа в логах
+                $arrOrderLog = json_decode($arData['UF_DISCREPANCIES'], true);
+            }
+            ?>
+            <?foreach($arrOrderLog as $key => $value):?>
+                <tr>
+                    <td width="50%"><?=$key?></td>
+                    <td width="50%"><?print_r($value);?></td>
+                </tr>
+            <?endforeach;?>
+            <?
+		}
+	}
+}
+
+===========================================================================================================================
+
+//добавим запись логов в HL Logging
+orderFormCLass::getLoggingOrder($order_id);
+
+
+
+
+
+===========================================================================================================================
+
+/**
+ * Извлекает информацию о заказе, сравнивает ее с существующими журналами и
+ * регистрирует любые несоответствия в таблице HL.
+ * 
+ * @param order_id
+ */
+  public static function getLoggingOrder($order_id,  $answer) {
+    $order = \Bitrix\Sale\Order::load($order_id);
+    $orderID = $order->getId();
+    $arrOrderLog = $arrOrder = [];
+
+    $hlblock = HL\HighloadBlockTable::getList([
+        'filter' => ['=NAME' => 'logging']
+    ])->fetch();
+    $entityClass = HL\HighloadBlockTable::compileEntity($hlblock)->getDataClass();
+
+    // найдем запись в HL Logging
+    $isExist = $getCounter = 0;
+    $arFilter = [
+        '=UF_ORDER_ID' => $orderID,
+    ];
+
+    $ress = $entityClass::getList(array(
+        "select" => ["ID", "UF_ORDER_ID", "UF_DATE_CREATE", 'UF_JSON'],
+        "order" => ["ID" => "DESC"],
+        "filter" => $arFilter,
+        'limit' => 1,
+    ));
+    
+    while($arData = $ress->Fetch()){
+        $elemID = $arData['ID'];
+        // массив заказа в логах
+        $arrOrderLog = json_decode($arData['UF_JSON'], true);
+    }
+
+    /* Start Получим все актуальные поля заказа */
+    //1. значения свойств заказа
+    $arrOrder['FIELDS'] = $order->getFields()->getValues();
+
+    //2. доп свойства заказа
+    foreach ($order->getPropertyCollection() as $property) {
+      $getValue = $property->getField('VALUE');
+      if ($getValue) {
+        $arrOrder['PROP_COLLECTIONS'][$property->getField('CODE')] = $getValue;
+        //$arrCode[$property->getField('CODE')] = $getValue;
+      }
+    }
+
+    //3. товары в корзине
+    $basketItems = $order->getBasket()->getBasketItems();
+    foreach ($basketItems as $basketItem) {
+      //4. корзина заказа
+      $arrOrder['BASKET'] = $basketItem->getFields()->getValues();
+
+      //5. свойства в корзине заказа
+      $basketPropertyCollection = $basketItem->getPropertyCollection();
+      foreach ($basketPropertyCollection as $propertyItem) {
+        $getValues = $propertyItem->getField('VALUE');
+        if ($getValues) {
+          $arrOrder['BASKET_FIELDS'][$propertyItem->getField('CODE')] = $getValue;
+        }
+      }
+    }
+    /* End Получим все актуальные поля заказа */
+
+    if(!empty($arrOrderLog)){
+      // найдем расхождения в заказе
+      $resultFIELDS = array_diff((array)$arrOrderLog['FIELDS'], (array)$arrOrder['FIELDS']);
+      $resultPROP_COLLECTIONS = array_diff((array)$arrOrderLog['PROP_COLLECTIONS'], (array)$arrOrder['PROP_COLLECTIONS']); 
+      $resultBASKET = array_diff((array)$arrOrderLog['BASKET'], (array)$arrOrder['BASKET']); 
+      $resultBASKET_FIELDS = array_diff((array)$arrOrderLog['BASKET_FIELDS'], (array)$arrOrder['BASKET_FIELDS']); 
+      $allResult0 = array_merge($resultFIELDS, $resultPROP_COLLECTIONS);
+      $allResult1 = array_merge($resultBASKET, $resultBASKET_FIELDS); 
+      $allResult = array_merge($allResult0, $allResult1); 
+
+      //если они есть, то 
+      if(!empty($allResult)){
+        $data = [
+          'UF_ORDER_ID' => $orderID,
+          'UF_DATE_CREATE' => date('d.m.Y H:i:s'),
+          'UF_DISCREPANCIES' => json_encode($allResult),
+          'UF_JSON' => json_encode($arrOrder),
+        ];
+  
+        //добавим новую запись в HL Logging
+        $result = $entityClass::update($elemID, $data);
+      }
+    } else {
+      //иначе просто занесем новый заказ в HL Logging
+      $data = [
+        'UF_ORDER_ID' => $orderID,
+        'UF_DATE_CREATE' => date('d.m.Y H:i:s'),
+        'UF_DISCREPANCIES' => '',
+        'UF_JSON' => json_encode($arrOrder),
+      ];
+
+      //добавим новую запись в HL Logging
+      $result = $entityClass::add($data);
+    }
+  }
